@@ -1,0 +1,90 @@
+Statewise Development Analysis in India
+
+**************************************************************************************************************************
+Using Flume download the xml file into HDFS
+flume-ng agent -n agent1 --conf-file /home/acadgild/mainproject/filecopy.conf -DFlume.root.logger=INFO,console
+**************************************************************************************************************************
+
+==========================================================================================================================
+Problem 1. Find out the districts who achieved 100 percent objective in BPL cards. Export the results to mysql using sqoop
+==========================================================================================================================
+
+**************************************************************************************************************************
+Using Pig
+
+grunt> register /home/acadgild/pig_xml.jar
+
+grunt> xml_input_data = load '/user/acadgild/mainproject_log/' using pig.XML.newloader('row') as (doc:chararray);
+
+grunt> maindata = foreach xml_input_data GENERATE FLATTEN(REGEX_EXTRACT_ALL(doc,'<row>\\s*<State_Name>(.*)</State_Name>\\s*<District_Name>(.*)</District_Name>\\s*<Project_Objectives_IHHL_BPL>(.*)</Project_Objectives_IHHL_BPL>\\s*<Project_Objectives_IHHL_APL>(.*)</Project_Objectives_IHHL_APL>\\s*<Project_Objectives_IHHL_TOTAL>(.*)</Project_Objectives_IHHL_TOTAL>\\s*<Project_Objectives_SCW>(.*)</Project_Objectives_SCW>\\s*<Project_Objectives_School_Toilets>(.*)</Project_Objectives_School_Toilets>\\s*<Project_Objectives_Anganwadi_Toilets>(.*)</Project_Objectives_Anganwadi_Toilets>\\s*<Project_Objectives_RSM>(.*)</Project_Objectives_RSM>\\s*<Project_Objectives_PC>(.*)</Project_Objectives_PC>\\s*<Project_Performance-IHHL_BPL>(.*)</Project_Performance-IHHL_BPL>\\s*<Project_Performance-IHHL_APL>(.*)</Project_Performance-IHHL_APL>\\s*<Project_Performance-IHHL_TOTAL>(.*)</Project_Performance-IHHL_TOTAL>\\s*<Project_Performance-SCW>(.*)</Project_Performance-SCW>\\s*<Project_Performance-School_Toilets>(.*)</Project_Performance-School_Toilets>\\s*<Project_Performance-Anganwadi_Toilets>(.*)</Project_Performance-Anganwadi_Toilets>\\s*<Project_Performance-RSM>(.*)</Project_Performance-RSM>\\s*<Project_Performance-PC>(.*)</Project_Performance-PC>\\s*</row>'));
+
+grunt> data1 = FILTER maindata BY (($2-$10)==0);
+
+grunt> data2 = FOREACH data1 generate $0, $1;
+
+grunt> STORE data2 INTO '/user/acadgild/project1set1' USING PigStorage(','); 
+
+$ mysql -u root
+mysql> USE acdproject;
+mysql> CREATE TABLE project1data1 (statename VARCHAR(75), districtname VARCHAR(75));
+
+sqoop export --connect jdbc:mysql://localhost/acdproject --table project1data1 --export-dir /user/acadgild/project1set1/part-m-00000 --fields-terminated-by ',' --username root
+**************************************************************************************************************************
+
+==========================================================================================================================
+Problem 2: Write a Pig UDF to filter the districts who have reached 80% of objectives of BPL cards. 
+Export the results to mysql using sqoop.
+==========================================================================================================================
+
+**************************************************************************************************************************
+Create the pig udf in java. Save it as a jar file.
+
+import java.io.IOException;
+import org.apache.pig.FilterFunc;
+import org.apache.pig.data.Tuple;
+
+public class Bplcards extends FilterFunc {
+    @Override
+    public Boolean exec(Tuple sdata) throws IOException {
+        if (sdata == null || sdata.size() == 0 || sdata.get(0) == null)
+            return null;
+        float res = 0;
+        try {
+            float a = (Float) sdata.get(0);
+            float b = (Float) sdata.get(1);
+            res = (a/b)*100;
+            if (Math.round(res) == 80)
+                return true;
+            throw new IOException("caught exception in tuple "+e.getMessage(), e);
+        }
+        return false;
+    }
+}
+
+Login to pig mapreduce mode
+
+grunt> register /home/acadgild/workspace/pigudf_project/bin/pig_udf.jar;
+
+grunt> xml_input_data = load '/user/acadgild/mainproject_log/' using pig.XML.newloader('row') as (doc:chararray);
+
+grunt> maindata = foreach xml_input_data GENERATE FLATTEN(REGEX_EXTRACT_ALL(doc,'<row>\\s*<State_Name>(.*)</State_Name>\\s*<District_Name>(.*)</District_Name>\\s*<Project_Objectives_IHHL_BPL>(.*)</Project_Objectives_IHHL_BPL>\\s*<Project_Objectives_IHHL_APL>(.*)</Project_Objectives_IHHL_APL>\\s*<Project_Objectives_IHHL_TOTAL>(.*)</Project_Objectives_IHHL_TOTAL>\\s*<Project_Objectives_SCW>(.*)</Project_Objectives_SCW>\\s*<Project_Objectives_School_Toilets>(.*)</Project_Objectives_School_Toilets>\\s*<Project_Objectives_Anganwadi_Toilets>(.*)</Project_Objectives_Anganwadi_Toilets>\\s*<Project_Objectives_RSM>(.*)</Project_Objectives_RSM>\\s*<Project_Objectives_PC>(.*)</Project_Objectives_PC>\\s*<Project_Performance-IHHL_BPL>(.*)</Project_Performance-IHHL_BPL>\\s*<Project_Performance-IHHL_APL>(.*)</Project_Performance-IHHL_APL>\\s*<Project_Performance-IHHL_TOTAL>(.*)</Project_Performance-IHHL_TOTAL>\\s*<Project_Performance-SCW>(.*)</Project_Performance-SCW>\\s*<Project_Performance-School_Toilets>(.*)</Project_Performance-School_Toilets>\\s*<Project_Performance-Anganwadi_Toilets>(.*)</Project_Performance-Anganwadi_Toilets>\\s*<Project_Performance-RSM>(.*)</Project_Performance-RSM>\\s*<Project_Performance-PC>(.*)</Project_Performance-PC>\\s*</row>'));
+
+grunt> STORE maindata INTO '/user/acadgild/project1set2' USING PigStorage(','); 
+
+grunt> A = Load '/user/acadgild/project1set2/part-m-00000' using PigStorage (',');
+
+grunt> B = FILTER A BY Bplcards((float)$10,(float)$2);
+
+grunt> C = FOREACH B GENERATE($0,$1,$2,$10);
+
+grunt> STORE C INTO '/user/acadgild/project1set2_1' USING PigStorage(','); 
+
+$ mysql -u root
+mysql> USE acdproject;
+mysql> CREATE TABLE project1data2 (statename VARCHAR(75), districtname VARCHAR(75), objective VARCHAR(15), achieved VARCHAR(15));
+
+sqoop export --connect jdbc:mysql://localhost/acdproject --table project1data2 --export-dir /user/acadgild/project1set2_1/part-m-00000 --fields-terminated-by ',' --username root
+
+**************************************************************************************************************************
+
+
